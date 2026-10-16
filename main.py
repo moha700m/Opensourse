@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import asyncio
+import json
 import re
 import shutil
 import threading
@@ -26,12 +28,17 @@ ROOT = Path(__file__).resolve().parent
 WEB_DIR = ROOT / "web"
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", str(ROOT / "output"))).expanduser().resolve()
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(1024 * 1024 * 1024)))
+UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"}
 
 app = FastAPI(title="OpenShorts", description="حوّل فيديو YouTube طويلًا إلى شورتات عمودية.")
 app.mount("/assets", StaticFiles(directory=WEB_DIR / "assets"), name="assets")
 
 _jobs: dict[str, dict[str, Any]] = {}
 _jobs_lock = threading.Lock()
+_processing_lock = threading.Lock()
+_upload_locks: dict[str, asyncio.Lock] = {}
 _runtime_api_key = ""
 _app_password = os.getenv("APP_PASSWORD", "")
 _app_username = os.getenv("APP_USERNAME", "openshorts")
@@ -61,11 +68,19 @@ async def require_deployment_password(request: Request, call_next):
     return await call_next(request)
 
 
-class CreateJobRequest(BaseModel):
-    url: str = Field(min_length=10, max_length=2048)
+class ClipOptions(BaseModel):
     clip_count: int = Field(default=5, ge=1, le=12)
     min_seconds: int = Field(default=30, ge=15, le=90)
     max_seconds: int = Field(default=60, ge=20, le=120)
+
+
+class CreateJobRequest(ClipOptions):
+    url: str = Field(min_length=10, max_length=2048)
+
+
+class CreateUploadRequest(ClipOptions):
+    filename: str = Field(min_length=1, max_length=240)
+    size: int = Field(ge=1, le=MAX_UPLOAD_BYTES)
 
 
 class SettingsRequest(BaseModel):
@@ -81,30 +96,57 @@ def _is_youtube_url(raw_url: str) -> bool:
 
 
 def _public_job(job: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in job.items() if key not in {"work_dir", "source_path"}}
+    return {key: value for key, value in job.items() if key not in {"work_dir", "source_path", "options"}}
 
 
-def _run_job(job_id: str, request: CreateJobRequest, cookies_path: Path | None = None) -> None:
+def _persist_job(job: dict[str, Any]) -> None:
+    directory = OUTPUT_DIR / job["id"]
+    directory.mkdir(parents=True, exist_ok=True)
+    temporary = directory / "job.json.tmp"
+    temporary.write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(directory / "job.json")
+
+
+def _new_job(job_id: str) -> dict[str, Any]:
+    return {"id": job_id, "status": "queued", "progress": 0,
+            "stage": "أُضيف الفيديو إلى قائمة المعالجة", "title": "", "clips": [],
+            "selection_method": "", "error": ""}
+
+
+def _validate_options(request: ClipOptions) -> None:
+    if request.max_seconds < request.min_seconds:
+        raise HTTPException(status_code=422, detail="الحد الأعلى لطول المقطع يجب أن يكون أكبر من الحد الأدنى.")
+
+
+def _run_job(
+    job_id: str, request: ClipOptions, cookies_path: Path | None = None,
+    source_path: Path | None = None, source_title: str = "",
+) -> None:
     def update(**values: Any) -> None:
         with _jobs_lock:
             if job_id in _jobs:
                 _jobs[job_id].update(values)
+                _persist_job(_jobs[job_id])
 
     try:
-        result = process_video(
-            job_id=job_id,
-            url=request.url,
-            clip_count=request.clip_count,
-            min_seconds=request.min_seconds,
-            max_seconds=request.max_seconds,
-            output_dir=OUTPUT_DIR,
-            api_key=_runtime_api_key or os.getenv("OPENROUTER_API_KEY", ""),
-            model=os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini"),
-            whisper_model=os.getenv("WHISPER_MODEL", "base"),
-            max_video_seconds=int(os.getenv("MAX_UPLOAD_SECONDS", "14400")),
-            progress=update,
-            cookies_path=cookies_path,
-        )
+        # Only one transcription/render at a time on a small Render instance.
+        with _processing_lock:
+            result = process_video(
+                job_id=job_id,
+                url=getattr(request, "url", ""),
+                clip_count=request.clip_count,
+                min_seconds=request.min_seconds,
+                max_seconds=request.max_seconds,
+                output_dir=OUTPUT_DIR,
+                api_key=_runtime_api_key or os.getenv("OPENROUTER_API_KEY", ""),
+                model=os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini"),
+                whisper_model=os.getenv("WHISPER_MODEL", "base"),
+                max_video_seconds=int(os.getenv("MAX_UPLOAD_SECONDS", "14400")),
+                progress=update,
+                cookies_path=cookies_path,
+                source_path=source_path,
+                source_title=source_title,
+            )
         update(status="completed", progress=100, stage="اكتمل تجهيز المقاطع", **result)
     except Exception as exc:
         message = str(exc).strip() or "تعذر إكمال معالجة الفيديو."
@@ -112,6 +154,24 @@ def _run_job(job_id: str, request: CreateJobRequest, cookies_path: Path | None =
     finally:
         if cookies_path:
             cookies_path.unlink(missing_ok=True)
+
+
+# Restore completed results and interrupted uploads when the process restarts.
+for _state_file in OUTPUT_DIR.glob("*/job.json"):
+    try:
+        _saved = json.loads(_state_file.read_text(encoding="utf-8"))
+        if not re.fullmatch(r"[0-9a-f]{12}", str(_saved.get("id", ""))):
+            continue
+        if _saved["id"] != _state_file.parent.name:
+            continue
+        if _saved.get("status") in {"queued", "processing"}:
+            _saved.update(status="failed", stage="انقطعت المعالجة", error="أُعيد تشغيل الخادم أثناء المعالجة. أعد إرسال الفيديو.")
+        if _saved.get("status") == "uploading":
+            _partial = _state_file.parent / "upload.part"
+            _saved["received_bytes"] = _partial.stat().st_size if _partial.exists() else 0
+        _jobs[_saved["id"]] = _saved
+    except (OSError, ValueError, KeyError, TypeError):
+        continue
 
 
 @app.get("/")
@@ -130,6 +190,8 @@ def get_config() -> dict[str, Any]:
         "openrouter_configured": bool(_runtime_api_key or os.getenv("OPENROUTER_API_KEY")),
         "model": os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini"),
         "whisper_model": os.getenv("WHISPER_MODEL", "base"),
+        "max_upload_bytes": MAX_UPLOAD_BYTES,
+        "upload_chunk_bytes": UPLOAD_CHUNK_BYTES,
     }
 
 
@@ -147,8 +209,7 @@ def _queue_job(
 ) -> dict[str, Any]:
     if not _is_youtube_url(request.url):
         raise HTTPException(status_code=422, detail="أدخل رابط فيديو من YouTube بصيغة https://youtube.com أو https://youtu.be.")
-    if request.max_seconds < request.min_seconds:
-        raise HTTPException(status_code=422, detail="الحد الأعلى لطول المقطع يجب أن يكون أكبر من الحد الأدنى.")
+    _validate_options(request)
 
     job_id = uuid.uuid4().hex[:12]
     cookies_path = None
@@ -160,18 +221,10 @@ def _queue_job(
         with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as cookie_file:
             cookie_file.write(cookies_text)
 
-    job = {
-        "id": job_id,
-        "status": "queued",
-        "progress": 0,
-        "stage": "أُضيف الفيديو إلى قائمة المعالجة",
-        "title": "",
-        "clips": [],
-        "selection_method": "",
-        "error": "",
-    }
+    job = _new_job(job_id)
     with _jobs_lock:
         _jobs[job_id] = job
+        _persist_job(job)
     background_tasks.add_task(_run_job, job_id, request, cookies_path)
     return _public_job(job)
 
@@ -179,6 +232,81 @@ def _queue_job(
 @app.post("/api/jobs", status_code=202)
 def create_job(request: CreateJobRequest, background_tasks: BackgroundTasks) -> dict[str, Any]:
     return _queue_job(request, background_tasks)
+
+
+@app.post("/api/uploads", status_code=201)
+async def create_upload(request: CreateUploadRequest) -> dict[str, Any]:
+    _validate_options(request)
+    filename = Path(request.filename.replace("\\", "/")).name
+    if Path(filename).suffix.lower() not in VIDEO_EXTENSIONS:
+        raise HTTPException(status_code=422, detail="اختر ملف فيديو MP4 أو MOV أو WebM أو MKV أو AVI.")
+    job_id = uuid.uuid4().hex[:12]
+    directory = OUTPUT_DIR / job_id
+    directory.mkdir(mode=0o700)
+    (directory / "upload.part").touch(mode=0o600)
+    job = {**_new_job(job_id), "status": "uploading", "stage": "بانتظار رفع الفيديو من الجوال",
+           "filename": filename, "size": request.size, "received_bytes": 0,
+           "options": request.model_dump(include={"clip_count", "min_seconds", "max_seconds"})}
+    with _jobs_lock:
+        _jobs[job_id] = job
+        _persist_job(job)
+    return _public_job(job)
+
+
+def _upload_job(job_id: str) -> dict[str, Any]:
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job or "size" not in job:
+            raise HTTPException(status_code=404, detail="انتهت جلسة الرفع. اختر الفيديو مرة أخرى.")
+        return job
+
+
+@app.put("/api/uploads/{job_id}")
+async def upload_chunk(job_id: str, request: Request, offset: int = 0) -> dict[str, Any]:
+    job = _upload_job(job_id)
+    async with _upload_locks.setdefault(job_id, asyncio.Lock()):
+        if job["status"] != "uploading":
+            raise HTTPException(status_code=409, detail="انتهى رفع هذا الفيديو بالفعل.")
+        partial = OUTPUT_DIR / job_id / "upload.part"
+        received = partial.stat().st_size
+        if offset != received:
+            raise HTTPException(status_code=409, detail={"received_bytes": received})
+        data = bytearray()
+        async for block in request.stream():
+            data.extend(block)
+            if len(data) > UPLOAD_CHUNK_BYTES:
+                raise HTTPException(status_code=413, detail="جزء الرفع أكبر من الحد المسموح.")
+        if not data or received + len(data) > job["size"]:
+            raise HTTPException(status_code=422, detail="حجم بيانات الرفع لا يطابق الفيديو المختار.")
+        # A dropped request never appends half a chunk; the next request can
+        # safely resume from the committed byte offset.
+        with partial.open("ab") as destination:
+            destination.write(data)
+        with _jobs_lock:
+            job.update(received_bytes=received + len(data),
+                       progress=round(25 * (received + len(data)) / job["size"]),
+                       stage="جارٍ رفع الفيديو من الجوال")
+            _persist_job(job)
+        return _public_job(job)
+
+
+@app.post("/api/uploads/{job_id}/complete", status_code=202)
+async def complete_upload(job_id: str, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    job = _upload_job(job_id)
+    async with _upload_locks.setdefault(job_id, asyncio.Lock()):
+        # Retrying after a lost response must not queue the same video twice.
+        if job["status"] != "uploading":
+            return _public_job(job)
+        partial = OUTPUT_DIR / job_id / "upload.part"
+        if partial.stat().st_size != job["size"]:
+            raise HTTPException(status_code=409, detail="لم يكتمل رفع الفيديو بعد.")
+        source = partial.with_name("upload" + Path(job["filename"]).suffix.lower())
+        partial.replace(source)
+        with _jobs_lock:
+            job.update(status="queued", progress=25, stage="اكتمل الرفع؛ بانتظار المعالجة", source_path=str(source))
+            _persist_job(job)
+        background_tasks.add_task(_run_job, job_id, ClipOptions(**job["options"]), None, source, Path(job["filename"]).stem)
+        return _public_job(job)
 
 
 def _youtube_cookie_file(contents: bytes) -> str:
@@ -230,6 +358,9 @@ def get_job(job_id: str) -> dict[str, Any]:
         job = _jobs.get(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="لم يتم العثور على عملية المعالجة.")
+        if job.get("status") == "uploading":
+            partial = OUTPUT_DIR / job_id / "upload.part"
+            job["received_bytes"] = partial.stat().st_size if partial.exists() else 0
         return _public_job(job)
 
 
@@ -251,6 +382,10 @@ def download_clip(job_id: str, clip_name: str, file_type: str) -> FileResponse:
 @app.delete("/api/jobs/{job_id}")
 def delete_job(job_id: str) -> dict[str, bool]:
     with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job and (job["status"] in {"queued", "processing"} or
+                    (job_id in _upload_locks and _upload_locks[job_id].locked())):
+            raise HTTPException(status_code=409, detail="انتظر انتهاء العملية الحالية قبل الحذف.")
         job = _jobs.pop(job_id, None)
     if not job:
         raise HTTPException(status_code=404, detail="لم يتم العثور على العملية.")

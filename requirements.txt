@@ -5,4 +5,6 @@ pydantic>=2.7,<3.0
 python-multipart>=0.0.12,<1.0
 yt-dlp>=2025.1.15
 faster-whisper>=1.1,<2.0
+# PyAV 19 removed metadata_errors, still used by faster-whisper 1.x.
+av>=16,<17
 openai>=1.60,<3.0

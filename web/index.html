@@ -36,6 +36,7 @@
           <span><b class="platform-t">♪</b> TikTok</span>
           <span><b class="platform-i">◎</b> Reels</span>
         </div>
+        <button id="hero-start" class="hero-start" type="button">اختر فيديو وابدأ تلقائيًا <span>＋</span></button>
       </div>
       <div class="hero-art" aria-hidden="true">
         <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
@@ -59,19 +60,24 @@
     <section class="workspace" id="workspace">
       <div class="section-heading">
         <div><div class="eyebrow"><span class="eyebrow-line"></span> ابدأ من هنا</div><h2>أعطنا الفيديو.<br><em>نجد لك اللحظات.</em></h2></div>
-        <div class="step-counter"><span>خطوة 01</span><b>من رابط إلى مقاطع</b></div>
+        <div class="step-counter"><span>خطوة 01</span><b>من فيديو إلى مقاطع</b></div>
       </div>
 
       <div class="workspace-grid">
         <form id="job-form" class="input-panel">
-          <label class="field-label" for="video-url"><span class="field-number">01</span> رابط فيديو YouTube</label>
-          <div class="url-input-wrap"><span class="youtube-icon">▶</span><input id="video-url" name="url" type="url" placeholder="https://youtube.com/watch?v=..." required autocomplete="url"><button id="paste-button" class="paste-button" type="button">لصق</button></div>
-          <div class="cookies-upload"><label class="field-label" for="youtube-cookies"><span class="field-number">02</span> ملف YouTube cookies (اختياري)</label><input id="youtube-cookies" type="file" accept=".txt,text/plain"><p>استخدمه فقط إذا طلب YouTube تسجيل الدخول. الملف يحتوي بيانات جلسة حساسة؛ يُرفع إلى خادمك ويُحذف بعد محاولة التنزيل.</p></div>
+          <div class="source-tabs" role="tablist" aria-label="مصدر الفيديو"><button id="upload-tab" class="source-tab active" type="button" role="tab" aria-selected="true" aria-controls="upload-panel">من الجوال</button><button id="youtube-tab" class="source-tab" type="button" role="tab" aria-selected="false" aria-controls="youtube-panel">رابط YouTube</button></div>
           <div class="settings-row">
-            <label class="setting-field"><span>عدد المقاطع</span><select id="clip-count" name="clip_count"><option value="3">3 مقاطع</option><option value="5" selected>5 مقاطع</option><option value="8">8 مقاطع</option><option value="12">12 مقطعًا</option></select></label>
+            <label class="setting-field"><span>عدد المقاطع</span><select id="clip-count" name="clip_count"><option value="3" selected>3 مقاطع</option><option value="5">5 مقاطع</option><option value="8">8 مقاطع</option><option value="12">12 مقطعًا</option></select></label>
             <label class="setting-field"><span>المدة التقريبية</span><select id="clip-length"><option value="30-45">30–45 ثانية</option><option value="30-60" selected>30–60 ثانية</option><option value="45-90">45–90 ثانية</option></select></label>
           </div>
-          <button class="submit-button" type="submit"><span>اكتشف اللحظات</span><b>←</b></button>
+          <div id="upload-panel" role="tabpanel" aria-labelledby="upload-tab"><label class="upload-picker" for="video-file"><span aria-hidden="true">＋</span><strong>اختر فيديو من الاستديو</strong><small>أو اختره من تطبيق الملفات</small><input id="video-file" type="file" accept="video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi" required></label><p id="video-file-name" class="source-hint">اختر الفيديو ليبدأ التحويل تلقائيًا. أبقِ الصفحة مفتوحة حتى ينتهي الرفع.</p><p id="upload-limit" class="source-hint">حتى 1 غيغابايت · يدعم MP4 وMOV</p></div>
+          <div id="youtube-panel" class="hidden" role="tabpanel" aria-labelledby="youtube-tab">
+          <label class="field-label" for="video-url"><span class="field-number">01</span> رابط فيديو YouTube</label>
+          <div class="url-input-wrap"><span class="youtube-icon">▶</span><input id="video-url" name="url" type="url" placeholder="https://youtube.com/watch?v=..." autocomplete="url"><button id="paste-button" class="paste-button" type="button">لصق</button></div>
+          <p class="source-hint">قد يطلب YouTube تحققًا من خوادم الاستضافة. إذا تعذر الرابط، اختر ملف الفيديو من الجوال.</p>
+          <details class="cookies-upload"><summary>إعداد YouTube متقدم</summary><label class="field-label" for="youtube-cookies">ملف cookies (اختياري)</label><input id="youtube-cookies" type="file" accept=".txt,text/plain"><p>الملف يحتوي بيانات جلسة حساسة؛ يُرفع إلى خادمك ويُحذف بعد محاولة التنزيل.</p></details>
+          </div>
+          <button class="submit-button" type="submit"><span>ابدأ التحويل</span><b>←</b></button>
           <div class="privacy-note"><span class="lock-icon">▣</span> تتم المعالجة على خادم OpenShorts؛ لا يُرسل إلى OpenRouter إلا النص المستخرج عند تفعيل التحليل الذكي.</div>
           <div class="settings-note" id="ai-note"><span class="status-dot"></span><span>جارٍ فحص إعداد OpenRouter...</span><button id="key-toggle" type="button">إعداد المفتاح</button></div>
           <div class="key-settings hidden" id="key-settings"><label for="router-key">مفتاح OpenRouter</label><div><input id="router-key" type="password" placeholder="sk-or-v1-…" autocomplete="off" spellcheck="false"><button id="save-key" type="button">حفظ مؤقتًا</button></div><small>يبقى في ذاكرة الخادم حتى إيقافه، ولا يُحفظ في ملف.</small></div>
@@ -93,6 +99,7 @@
       <div class="results-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> غرفة المونتاج</div><h2 id="results-title">المقاطع <em>تتجهّز.</em></h2></div><button id="new-job-button" class="new-job-button" type="button">فيديو جديد <span>＋</span></button></div>
       <div class="progress-card" id="progress-card"><div class="progress-top"><div><span class="progress-kicker">معالجة الفيديو</span><b id="progress-stage">في قائمة الانتظار</b></div><span id="progress-percent">0%</span></div><div class="progress-track"><div id="progress-bar"></div></div><div class="processing-meta"><span id="processing-title">نحلل الفيديو لنجد أفضل لحظاته…</span><span id="processing-elapsed">لا تغلق الصفحة</span></div></div>
       <div id="error-card" class="error-card hidden"></div>
+      <button id="upload-fallback" class="new-job-button hidden" type="button">اختيار الفيديو من الجوال ＋</button>
       <div class="method-note hidden" id="method-note"></div>
       <div id="clips-grid" class="clips-grid"></div>
     </section>

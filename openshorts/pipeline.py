@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -114,10 +115,11 @@ def _download(
 def _transcribe(source: Path, model_name: str, work_dir: Path, progress: Progress) -> tuple[list[dict[str, Any]], str]:
     audio_path = work_dir / "audio.wav"
     progress(status="processing", progress=30, stage="استخراج الصوت")
-    _run(["ffmpeg", "-y", "-i", str(source), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(audio_path)])
+    _run(["ffmpeg", "-y", "-threads", "1", "-protocol_whitelist", "file,pipe", "-i", str(source), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(audio_path)])
     progress(progress=34, stage=f"تفريغ الكلام بالنموذج المحلي ({model_name})؛ قد يستغرق ذلك وقتًا أول مرة")
-    model = WhisperModel(model_name, device="cpu", compute_type="int8")
-    segments_iterator, info = model.transcribe(str(audio_path), vad_filter=True, word_timestamps=False)
+    model = WhisperModel(model_name, device="cpu", compute_type="int8", cpu_threads=2, num_workers=1,
+                         download_root=os.getenv("WHISPER_CACHE_DIR"))
+    segments_iterator, info = model.transcribe(str(audio_path), beam_size=1, vad_filter=True, word_timestamps=False)
     segments: list[dict[str, Any]] = []
     for segment in segments_iterator:
         text = re.sub(r"\s+", " ", segment.text).strip()
@@ -378,11 +380,15 @@ def _render_clip(
     video_path = out_dir / f"{clip_name}.mp4"
     _write_srt(srt_path, segments, clip["start"], clip["end"])
     subtitle_filter = f"subtitles='{_escape_filter_path(srt_path)}':force_style='FontName=Noto Sans,FontSize=17,PrimaryColour=&H00FFFFFF,OutlineColour=&H00101218,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=220'"
-    video_filter = f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,{subtitle_filter}"
+    # Crop before upscaling so landscape inputs do not create huge temporary
+    # frames. This keeps the 1080x1920 export within small-instance memory.
+    video_filter = f"crop='trunc(min(iw,ih*9/16)/2)*2':'trunc(min(ih,iw*16/9)/2)*2',scale=1080:1920,setsar=1,{subtitle_filter}"
     _run([
-        "ffmpeg", "-y", "-ss", f"{clip['start']:.3f}", "-i", str(source),
+        "ffmpeg", "-y", "-filter_threads", "1", "-threads", "1", "-ss", f"{clip['start']:.3f}",
+        "-protocol_whitelist", "file,pipe", "-i", str(source),
         "-t", f"{clip['end'] - clip['start']:.3f}", "-vf", video_filter,
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+        "-c:v", "libx264", "-threads", "1", "-preset", "veryfast", "-tune", "zerolatency",
+        "-crf", "22", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(video_path),
     ])
     metadata = {
@@ -405,6 +411,25 @@ def _render_clip(
     }
 
 
+def _probe_uploaded_video(source: Path, max_video_seconds: int) -> float:
+    try:
+        metadata = json.loads(_run([
+            "ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe",
+            "-show_entries", "format=duration:stream=codec_type", "-of", "json", str(source),
+        ]))
+        duration = float(metadata.get("format", {}).get("duration", 0))
+    except (ValueError, TypeError, RuntimeError) as exc:
+        raise RuntimeError("ملف الفيديو غير قابل للقراءة. اختر ملف MP4 أو MOV صالحًا.") from exc
+    track_types = {stream.get("codec_type") for stream in metadata.get("streams", [])}
+    if not math.isfinite(duration) or duration <= 0 or "video" not in track_types:
+        raise RuntimeError("الملف المرفوع لا يحتوي فيديو صالحًا.")
+    if "audio" not in track_types:
+        raise RuntimeError("الفيديو لا يحتوي مسارًا صوتيًا. اختر فيديو فيه كلام لاستخراج اللحظات.")
+    if duration > max_video_seconds:
+        raise RuntimeError(f"مدة الفيديو تتجاوز الحد المسموح ({max_video_seconds // 60} دقيقة).")
+    return duration
+
+
 def process_video(
     job_id: str,
     url: str,
@@ -418,11 +443,21 @@ def process_video(
     max_video_seconds: int,
     progress: Progress,
     cookies_path: Path | None = None,
+    source_path: Path | None = None,
+    source_title: str = "",
 ) -> dict[str, Any]:
     out_dir = output_dir / job_id
     out_dir.mkdir(parents=True, exist_ok=True)
     try:
-        source, title, duration = _download(url, out_dir, progress, max_video_seconds, cookies_path)
+        if source_path:
+            progress(status="processing", progress=27, stage="التحقق من الفيديو المرفوع")
+            source = source_path
+            title = source_title or "فيديو من الجوال"
+            duration = _probe_uploaded_video(source, max_video_seconds)
+        else:
+            source, title, duration = _download(url, out_dir, progress, max_video_seconds, cookies_path)
+        if duration < min_seconds:
+            raise RuntimeError(f"الفيديو أقصر من {min_seconds} ثانية. اختر مدة أقصر للمقاطع.")
         progress(title=title)
         segments, language = _transcribe(source, whisper_model, out_dir, progress)
         clips, method = _choose_clips(segments, duration, clip_count, min_seconds, max_seconds, api_key, model, progress)
@@ -439,5 +474,9 @@ def process_video(
             "selection_method": method,
             "clips": rendered,
         }
-    except Exception:
-        raise
+    finally:
+        # Retain the finished clips, not the large intermediate/source files.
+        for intermediate in [out_dir / "audio.wav", *out_dir.glob("source.*")]:
+            intermediate.unlink(missing_ok=True)
+        if source_path:
+            source_path.unlink(missing_ok=True)
