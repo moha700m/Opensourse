@@ -1,0 +1,12 @@
+services:
+  openshorts:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      OUTPUT_DIR: /app/output
+    volumes:
+      - ./output:/app/output

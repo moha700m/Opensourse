@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#11120f">
+  <meta name="description" content="حوّل فيديوهات YouTube الطويلة إلى شورتات عمودية بترجمة تلقائية واختيار ذكي للحظات.">
+  <title>OpenShorts — من الطويل إلى اللحظة</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div class="grain"></div>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="OpenShorts الصفحة الرئيسية">
+      <span class="brand-mark"><span></span><span></span><span></span></span>
+      <span>open<span class="brand-light">shorts</span></span>
+      <span class="oss-tag">OPEN SOURCE</span>
+    </a>
+    <div class="top-actions">
+      <span class="local-badge"><i></i> يعمل محليًا</span>
+      <a class="github-link" href="https://github.com/moha700m/OpenShorts" target="_blank" rel="noreferrer">GitHub <span>↗</span></a>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <div class="eyebrow"><span class="eyebrow-line"></span> استوديو إعادة تدوير الفيديو</div>
+        <h1>من الطويل<br>إلى <em>اللحظة.</em></h1>
+        <p class="hero-description">فيديو واحد. لحظات تستحق المشاهدة.<br>OpenShorts يختارها ويجهّزها للنشر عنك.</p>
+        <div class="platforms" aria-label="المنصات المدعومة">
+          <span><b class="platform-y">▶</b> Shorts</span>
+          <span><b class="platform-t">♪</b> TikTok</span>
+          <span><b class="platform-i">◎</b> Reels</span>
+        </div>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+        <div class="vertical-card">
+          <div class="video-scene">
+            <div class="scene-glow"></div><div class="scene-sun"></div>
+            <div class="scene-hill hill-back"></div><div class="scene-hill hill-front"></div>
+            <div class="scene-person"><span class="person-head"></span><span class="person-body"></span></div>
+            <div class="scene-caption">كل شيء يبدأ<br><strong>بفكرة واحدة.</strong></div>
+            <div class="scene-play"><span></span></div>
+          </div>
+          <div class="card-footer"><span>00:42</span><span class="waveform"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span>01:18</span></div>
+        </div>
+        <div class="float-label label-ai"><span class="spark">✳</span> لحظة مكتشفة</div>
+        <div class="float-label label-sub"><span>✓</span> ترجمة جاهزة</div>
+        <div class="art-cross cross-a">✳</div><div class="art-cross cross-b">✳</div>
+      </div>
+      <div class="hero-index"><span>01</span><i></i> 03</div>
+    </section>
+
+    <section class="workspace" id="workspace">
+      <div class="section-heading">
+        <div><div class="eyebrow"><span class="eyebrow-line"></span> ابدأ من هنا</div><h2>أعطنا الفيديو.<br><em>نجد لك اللحظات.</em></h2></div>
+        <div class="step-counter"><span>خطوة 01</span><b>من رابط إلى مقاطع</b></div>
+      </div>
+
+      <div class="workspace-grid">
+        <form id="job-form" class="input-panel">
+          <label class="field-label" for="video-url"><span class="field-number">01</span> رابط فيديو YouTube</label>
+          <div class="url-input-wrap"><span class="youtube-icon">▶</span><input id="video-url" name="url" type="url" placeholder="https://youtube.com/watch?v=..." required autocomplete="url"><button id="paste-button" class="paste-button" type="button">لصق</button></div>
+          <div class="settings-row">
+            <label class="setting-field"><span>عدد المقاطع</span><select id="clip-count" name="clip_count"><option value="3">3 مقاطع</option><option value="5" selected>5 مقاطع</option><option value="8">8 مقاطع</option><option value="12">12 مقطعًا</option></select></label>
+            <label class="setting-field"><span>المدة التقريبية</span><select id="clip-length"><option value="30-45">30–45 ثانية</option><option value="30-60" selected>30–60 ثانية</option><option value="45-90">45–90 ثانية</option></select></label>
+          </div>
+          <button class="submit-button" type="submit"><span>اكتشف اللحظات</span><b>←</b></button>
+          <div class="privacy-note"><span class="lock-icon">▣</span> تتم المعالجة على جهازك. ملف الفيديو لا يُرسل إلى OpenRouter.</div>
+          <div class="settings-note" id="ai-note"><span class="status-dot"></span><span>جارٍ فحص إعداد OpenRouter...</span><button id="key-toggle" type="button">إعداد المفتاح</button></div>
+          <div class="key-settings hidden" id="key-settings"><label for="router-key">مفتاح OpenRouter</label><div><input id="router-key" type="password" placeholder="sk-or-v1-…" autocomplete="off" spellcheck="false"><button id="save-key" type="button">حفظ مؤقتًا</button></div><small>يبقى في ذاكرة الخادم حتى إيقافه، ولا يُحفظ في ملف.</small></div>
+        </form>
+
+        <aside class="workflow-panel">
+          <div class="workflow-top"><span>كيف يعمل</span><span class="workflow-live"><i></i> محلي</span></div>
+          <div class="workflow-step"><span class="workflow-icon icon-transcript">≋</span><div><b>يفهم المحتوى</b><p>تفريغ الكلام محليًا مع التوقيت</p></div><span class="step-done">✓</span></div>
+          <div class="workflow-connector"></div>
+          <div class="workflow-step"><span class="workflow-icon icon-ai">✳</span><div><b>يلتقط الفكرة</b><p>يختار بداية قوية وفكرة مكتملة</p></div><span class="step-done">✓</span></div>
+          <div class="workflow-connector"></div>
+          <div class="workflow-step"><span class="workflow-icon icon-frame">▯</span><div><b>يجهّز الشورت</b><p>قص عمودي وترجمة مدمجة</p></div><span class="step-done">✓</span></div>
+          <div class="workflow-bottom"><span class="small-spark">✳</span> وقتك للمحتوى، مو للقصّ.</div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="results-section hidden" id="results-section">
+      <div class="results-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> غرفة المونتاج</div><h2 id="results-title">المقاطع <em>تتجهّز.</em></h2></div><button id="new-job-button" class="new-job-button" type="button">فيديو جديد <span>＋</span></button></div>
+      <div class="progress-card" id="progress-card"><div class="progress-top"><div><span class="progress-kicker">معالجة الفيديو</span><b id="progress-stage">في قائمة الانتظار</b></div><span id="progress-percent">0%</span></div><div class="progress-track"><div id="progress-bar"></div></div><div class="processing-meta"><span id="processing-title">نحلل الفيديو لنجد أفضل لحظاته…</span><span id="processing-elapsed">لا تغلق الصفحة</span></div></div>
+      <div id="error-card" class="error-card hidden"></div>
+      <div class="method-note hidden" id="method-note"></div>
+      <div id="clips-grid" class="clips-grid"></div>
+    </section>
+
+    <section class="feature-strip">
+      <div class="feature"><span class="feature-index">01 /</span><span class="feature-icon">◉</span><div><b>لحظات تستاهل</b><p>يفهم السياق ويبحث عن الفكرة، مو بس يقتطع عشوائيًا.</p></div></div>
+      <div class="feature"><span class="feature-index">02 /</span><span class="feature-icon">▯</span><div><b>عمودي من أول مرة</b><p>صيغة 9:16 جاهزة لـ Shorts وTikTok وReels.</p></div></div>
+      <div class="feature"><span class="feature-index">03 /</span><span class="feature-icon">Aa</span><div><b>ترجمة مدمجة</b><p>الكلام يصير ترجمة داخل المقطع، ومعه ملف SRT.</p></div></div>
+    </section>
+  </main>
+
+  <footer><a class="brand footer-brand" href="/"><span class="brand-mark"><span></span><span></span><span></span></span><span>open<span class="brand-light">shorts</span></span></a><span>صُنع لإعادة استخدام المحتوى، بحب.</span><span class="footer-right">مفتوح المصدر <b>✳</b></span></footer>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>
