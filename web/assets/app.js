@@ -6,6 +6,13 @@ const clipsGrid = document.querySelector("#clips-grid");
 let activeJobId = null;
 let pollTimer = null;
 
+const explainError = (message) => {
+  if (/sign in to confirm|not a bot|--cookies/i.test(message || "")) {
+    return "رفض YouTube تنزيل الفيديو من خادم الموقع وطلب تسجيل الدخول للتحقق. جرّب رابطًا عامًا آخر أو أعد المحاولة لاحقًا. هذه المشكلة من YouTube وليست من OpenRouter.";
+  }
+  return message || "تعذر تجهيز هذا الفيديو.";
+};
+
 const api = async (path, options = {}) => {
   const response = await fetch(path, {headers: {"Content-Type": "application/json", ...(options.headers || {})}, ...options});
   const body = await response.json().catch(() => ({}));
@@ -37,7 +44,7 @@ const setProgress = (job) => {
     clearInterval(pollTimer);
     document.querySelector("#results-title").innerHTML = 'نحتاج <em>محاولة أخرى.</em>';
     const error = document.querySelector("#error-card");
-    error.textContent = job.error || "تعذر تجهيز هذا الفيديو.";
+    error.textContent = explainError(job.error);
     error.classList.remove("hidden");
   }
 };
