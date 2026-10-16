@@ -41,7 +41,13 @@ def _escape_filter_path(path: Path) -> str:
     return str(path.resolve()).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'").replace(",", "\\,")
 
 
-def _download(url: str, work_dir: Path, progress: Progress, max_video_seconds: int) -> tuple[Path, str, float]:
+def _download(
+    url: str,
+    work_dir: Path,
+    progress: Progress,
+    max_video_seconds: int,
+    cookies_path: Path | None = None,
+) -> tuple[Path, str, float]:
     progress(status="processing", progress=5, stage="جلب فيديو YouTube")
     output_template = str(work_dir / "source.%(ext)s")
     base_options = {
@@ -56,47 +62,53 @@ def _download(url: str, work_dir: Path, progress: Progress, max_video_seconds: i
         "restrictfilenames": True,
         "max_filesize": 2 * 1024 * 1024 * 1024,
     }
+    if cookies_path:
+        base_options["cookiefile"] = str(cookies_path)
     # YouTube sometimes blocks one player API on cloud-hosted IPs. Retry with
     # other public player clients before reporting the original access error.
     client_profiles: list[tuple[str, ...] | None] = [None, ("tv_embedded",), ("ios",), ("android_vr",)]
     last_error: Exception | None = None
     fallback_started = False
-    for profile in client_profiles:
-        if fallback_started:
-            progress(progress=5, stage="نجرب طريقة أخرى لجلب الفيديو من YouTube")
-        options = dict(base_options)
-        if profile:
-            options["extractor_args"] = {"youtube": {"player_client": list(profile)}}
-        try:
-            with YoutubeDL(options) as ydl:
-                info = ydl.extract_info(url, download=False)
-                duration = float(info.get("duration") or 0)
-                title = str(info.get("title") or "فيديو YouTube")[:160]
-                if not duration:
-                    raise RuntimeError("لم أتمكن من قراءة مدة الفيديو.")
-                if duration > max_video_seconds:
-                    raise RuntimeError(f"طول الفيديو يتجاوز الحد الحالي ({max_video_seconds // 3600} ساعات).")
-                ydl.download([url])
-            break
-        except RuntimeError:
-            raise
-        except Exception as exc:
-            last_error = exc
-            for partial in work_dir.glob("source.*"):
-                partial.unlink(missing_ok=True)
-            message = str(exc).lower()
-            blocked = "sign in to confirm" in message or "not a bot" in message
-            if not fallback_started and not blocked:
-                raise RuntimeError(f"تعذر جلب الفيديو: {str(exc)[:260]}") from exc
-            fallback_started = fallback_started or blocked
-    else:
-        detail = str(last_error or "رفض YouTube طلب التنزيل.")[:260]
-        raise RuntimeError(f"تعذر جلب الفيديو: {detail}") from last_error
+    try:
+        for profile in client_profiles:
+            if fallback_started:
+                progress(progress=5, stage="نجرب طريقة أخرى لجلب الفيديو من YouTube")
+            options = dict(base_options)
+            if profile:
+                options["extractor_args"] = {"youtube": {"player_client": list(profile)}}
+            try:
+                with YoutubeDL(options) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    duration = float(info.get("duration") or 0)
+                    title = str(info.get("title") or "فيديو YouTube")[:160]
+                    if not duration:
+                        raise RuntimeError("لم أتمكن من قراءة مدة الفيديو.")
+                    if duration > max_video_seconds:
+                        raise RuntimeError(f"طول الفيديو يتجاوز الحد الحالي ({max_video_seconds // 3600} ساعات).")
+                    ydl.download([url])
+                break
+            except RuntimeError:
+                raise
+            except Exception as exc:
+                last_error = exc
+                for partial in work_dir.glob("source.*"):
+                    partial.unlink(missing_ok=True)
+                message = str(exc).lower()
+                blocked = "sign in to confirm" in message or "not a bot" in message
+                if not fallback_started and not blocked:
+                    raise RuntimeError(f"تعذر جلب الفيديو: {str(exc)[:260]}") from exc
+                fallback_started = fallback_started or blocked
+        else:
+            detail = str(last_error or "رفض YouTube طلب التنزيل.")[:260]
+            raise RuntimeError(f"تعذر جلب الفيديو: {detail}") from last_error
 
-    candidates = list(work_dir.glob("source.*"))
-    if not candidates:
-        raise RuntimeError("انتهى تنزيل الفيديو من دون إنشاء ملف.")
-    return candidates[0], title, duration
+        candidates = list(work_dir.glob("source.*"))
+        if not candidates:
+            raise RuntimeError("انتهى تنزيل الفيديو من دون إنشاء ملف.")
+        return candidates[0], title, duration
+    finally:
+        if cookies_path:
+            cookies_path.unlink(missing_ok=True)
 
 
 def _transcribe(source: Path, model_name: str, work_dir: Path, progress: Progress) -> tuple[list[dict[str, Any]], str]:
@@ -405,11 +417,12 @@ def process_video(
     whisper_model: str,
     max_video_seconds: int,
     progress: Progress,
+    cookies_path: Path | None = None,
 ) -> dict[str, Any]:
     out_dir = output_dir / job_id
     out_dir.mkdir(parents=True, exist_ok=True)
     try:
-        source, title, duration = _download(url, out_dir, progress, max_video_seconds)
+        source, title, duration = _download(url, out_dir, progress, max_video_seconds, cookies_path)
         progress(title=title)
         segments, language = _transcribe(source, whisper_model, out_dir, progress)
         clips, method = _choose_clips(segments, duration, clip_count, min_seconds, max_seconds, api_key, model, progress)

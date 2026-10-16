@@ -1,5 +1,6 @@
 const form = document.querySelector("#job-form");
 const urlInput = document.querySelector("#video-url");
+const cookiesInput = document.querySelector("#youtube-cookies");
 const resultsSection = document.querySelector("#results-section");
 const progressBar = document.querySelector("#progress-bar");
 const clipsGrid = document.querySelector("#clips-grid");
@@ -14,7 +15,9 @@ const explainError = (message) => {
 };
 
 const api = async (path, options = {}) => {
-  const response = await fetch(path, {headers: {"Content-Type": "application/json", ...(options.headers || {})}, ...options});
+  const headers = {...(options.headers || {})};
+  if (!(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
+  const response = await fetch(path, {...options, headers});
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.detail || "تعذر إكمال الطلب.");
   return body;
@@ -117,7 +120,17 @@ form.addEventListener("submit", async (event) => {
   clipsGrid.innerHTML = "";
   document.querySelector("#results-title").innerHTML = 'المقاطع <em>تتجهّز.</em>';
   try {
-    const job = await api("/api/jobs", {method: "POST", body: JSON.stringify(payload)});
+    let job;
+    const cookiesFile = cookiesInput.files[0];
+    if (cookiesFile) {
+      const formData = new FormData();
+      formData.append("request_json", JSON.stringify(payload));
+      formData.append("cookies", cookiesFile, cookiesFile.name);
+      job = await api("/api/jobs/with-cookies", {method: "POST", body: formData});
+      cookiesInput.value = "";
+    } else {
+      job = await api("/api/jobs", {method: "POST", body: JSON.stringify(payload)});
+    }
     activeJobId = job.id;
     document.querySelector("#progress-stage").textContent = job.stage;
     document.querySelector("#progress-percent").textContent = "0%";

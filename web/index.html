@@ -66,6 +66,7 @@
         <form id="job-form" class="input-panel">
           <label class="field-label" for="video-url"><span class="field-number">01</span> رابط فيديو YouTube</label>
           <div class="url-input-wrap"><span class="youtube-icon">▶</span><input id="video-url" name="url" type="url" placeholder="https://youtube.com/watch?v=..." required autocomplete="url"><button id="paste-button" class="paste-button" type="button">لصق</button></div>
+          <div class="cookies-upload"><label class="field-label" for="youtube-cookies"><span class="field-number">02</span> ملف YouTube cookies (اختياري)</label><input id="youtube-cookies" type="file" accept=".txt,text/plain"><p>استخدمه فقط إذا طلب YouTube تسجيل الدخول. الملف يحتوي بيانات جلسة حساسة؛ يُرفع إلى خادمك ويُحذف بعد محاولة التنزيل.</p></div>
           <div class="settings-row">
             <label class="setting-field"><span>عدد المقاطع</span><select id="clip-count" name="clip_count"><option value="3">3 مقاطع</option><option value="5" selected>5 مقاطع</option><option value="8">8 مقاطع</option><option value="12">12 مقطعًا</option></select></label>
             <label class="setting-field"><span>المدة التقريبية</span><select id="clip-length"><option value="30-45">30–45 ثانية</option><option value="30-60" selected>30–60 ثانية</option><option value="45-90">45–90 ثانية</option></select></label>
