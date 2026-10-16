@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
-RUN python -c "from faster_whisper.utils import download_model; download_model('tiny', cache_dir='/app/models')"
+RUN python -c "from faster_whisper.utils import download_model; download_model('tiny', output_dir='/app/models/tiny')"
 COPY . .
 RUN mkdir -p /app/output
 

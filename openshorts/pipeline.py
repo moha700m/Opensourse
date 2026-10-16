@@ -116,9 +116,13 @@ def _transcribe(source: Path, model_name: str, work_dir: Path, progress: Progres
     audio_path = work_dir / "audio.wav"
     progress(status="processing", progress=30, stage="استخراج الصوت")
     _run(["ffmpeg", "-y", "-threads", "1", "-protocol_whitelist", "file,pipe", "-i", str(source), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(audio_path)])
-    progress(progress=34, stage=f"تفريغ الكلام بالنموذج المحلي ({model_name})؛ قد يستغرق ذلك وقتًا أول مرة")
-    model = WhisperModel(model_name, device="cpu", compute_type="int8", cpu_threads=2, num_workers=1,
-                         download_root=os.getenv("WHISPER_CACHE_DIR"))
+    progress(progress=34, stage=f"تفريغ الكلام بالنموذج المحلي ({model_name})")
+    cache_dir = os.getenv("WHISPER_CACHE_DIR")
+    bundled_model = Path(cache_dir) / model_name if cache_dir else None
+    # An explicit model directory skips Hugging Face metadata/network requests.
+    model_location = str(bundled_model) if bundled_model and (bundled_model / "model.bin").is_file() else model_name
+    model = WhisperModel(model_location, device="cpu", compute_type="int8", cpu_threads=2, num_workers=1,
+                         download_root=cache_dir)
     segments_iterator, info = model.transcribe(str(audio_path), beam_size=1, vad_filter=True, word_timestamps=False)
     segments: list[dict[str, Any]] = []
     for segment in segments_iterator:
