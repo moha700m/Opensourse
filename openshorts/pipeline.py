@@ -315,13 +315,12 @@ def _choose_clips(
     return sorted(chosen, key=lambda item: item["start"]), f"OpenRouter · {model}"
 
 
-def _wrap_caption(text: str, max_chars: int = 42) -> list[list[str]]:
+def _wrap_caption(text: str, max_chars: int = 32) -> list[list[str]]:
     words = text.split()
     captions: list[list[str]] = []
     group: list[str] = []
     for word in words:
-        candidate = " ".join([*group, word])
-        if group and (len(candidate) > max_chars * 2 or len(group) >= 13):
+        if group and (len(_caption_lines([*group, word], max_chars)) > 2 or len(group) >= 13):
             captions.append(_caption_lines(group, max_chars))
             group = [word]
         else:
@@ -343,7 +342,7 @@ def _caption_lines(words: list[str], max_chars: int) -> list[str]:
             line = candidate
     if line:
         lines.append(line)
-    return lines[:2]
+    return lines
 
 
 def _write_srt(path: Path, segments: list[dict[str, Any]], clip_start: float, clip_end: float) -> None:
@@ -383,7 +382,9 @@ def _render_clip(
     json_path = out_dir / f"{clip_name}.json"
     video_path = out_dir / f"{clip_name}.mp4"
     _write_srt(srt_path, segments, clip["start"], clip["end"])
-    subtitle_filter = f"subtitles='{_escape_filter_path(srt_path)}':force_style='FontName=Noto Sans,FontSize=17,PrimaryColour=&H00FFFFFF,OutlineColour=&H00101218,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=220'"
+    # SRT is interpreted on libass's 288-high script canvas. These values map
+    # to roughly 67px text and a 320px bottom inset on a 1920-high export.
+    subtitle_filter = f"subtitles='{_escape_filter_path(srt_path)}':force_style='FontName=Noto Sans,FontSize=10,PrimaryColour=&H00FFFFFF,OutlineColour=&H00101218,BorderStyle=1,Outline=1,Shadow=1,Alignment=2,MarginV=48,MarginL=14,MarginR=14'"
     # Crop before upscaling so landscape inputs do not create huge temporary
     # frames. This keeps the 1080x1920 export within small-instance memory.
     video_filter = f"crop='trunc(min(iw,ih*9/16)/2)*2':'trunc(min(ih,iw*16/9)/2)*2',scale=1080:1920,setsar=1,{subtitle_filter}"
