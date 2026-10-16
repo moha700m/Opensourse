@@ -10,13 +10,15 @@ import uuid
 import base64
 import binascii
 import hmac
+import hashlib
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -42,11 +44,44 @@ _upload_locks: dict[str, asyncio.Lock] = {}
 _runtime_api_key = ""
 _app_password = os.getenv("APP_PASSWORD", "")
 _app_username = os.getenv("APP_USERNAME", "openshorts")
+SESSION_COOKIE = "openshorts_session"
+SESSION_SECONDS = 7 * 24 * 60 * 60
+
+
+def _same_text(left: str, right: str) -> bool:
+    return hmac.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
+
+
+def _session_signature(payload: str) -> str:
+    key = hmac.new(_app_password.encode("utf-8"), b"openshorts-session-v1", hashlib.sha256).digest()
+    return hmac.new(key, payload.encode("ascii"), hashlib.sha256).hexdigest()
+
+
+def _new_session() -> str:
+    raw = json.dumps({"user": _app_username, "expires": int(time.time()) + SESSION_SECONDS}).encode("utf-8")
+    payload = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+    return payload + "." + _session_signature(payload)
+
+
+def _valid_session(token: str) -> bool:
+    try:
+        if len(token) > 4096:
+            return False
+        payload, signature = token.split(".", 1)
+        if not _same_text(signature, _session_signature(payload)):
+            return False
+        data = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+        return data.get("user") == _app_username and int(data.get("expires", 0)) > time.time()
+    except (ValueError, TypeError, UnicodeError, AttributeError, binascii.Error):
+        return False
 
 
 @app.middleware("http")
 async def require_deployment_password(request: Request, call_next):
-    if not _app_password or request.url.path == "/healthz":
+    if not _app_password or request.url.path in {"/healthz", "/login", "/api/login"}:
+        return await call_next(request)
+
+    if _valid_session(request.cookies.get(SESSION_COOKIE, "")):
         return await call_next(request)
 
     scheme, _, encoded = request.headers.get("authorization", "").partition(" ")
@@ -58,13 +93,12 @@ async def require_deployment_password(request: Request, call_next):
     if (
         scheme.lower() != "basic"
         or not separator
-        or not hmac.compare_digest(username, _app_username)
-        or not hmac.compare_digest(password, _app_password)
+        or not _same_text(username, _app_username)
+        or not _same_text(password, _app_password)
     ):
-        return Response(
-            status_code=401,
-            headers={"WWW-Authenticate": 'Basic realm="OpenShorts"'},
-        )
+        if request.url.path.startswith("/api/"):
+            return JSONResponse({"detail": "سجّل الدخول إلى الموقع أولًا."}, status_code=401)
+        return RedirectResponse("/login", status_code=303)
     return await call_next(request)
 
 
@@ -85,6 +119,41 @@ class CreateUploadRequest(ClipOptions):
 
 class SettingsRequest(BaseModel):
     api_key: str = Field(default="", max_length=500)
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=1, max_length=500)
+
+
+@app.get("/login")
+def login_page(request: Request):
+    if not _app_password or _valid_session(request.cookies.get(SESSION_COOKIE, "")):
+        return RedirectResponse("/", status_code=303)
+    return FileResponse(WEB_DIR / "login.html", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/login")
+def login(request: LoginRequest, connection: Request):
+    if _app_password and not (
+        _same_text(request.username.strip(), _app_username)
+        and _same_text(request.password, _app_password)
+    ):
+        raise HTTPException(status_code=401, detail="بيانات الدخول غير صحيحة. تحقق من اسم المستخدم وكلمة المرور.")
+    response = JSONResponse({"authenticated": True}, headers={"Cache-Control": "no-store"})
+    response.set_cookie(
+        SESSION_COOKIE, _new_session(), max_age=SESSION_SECONDS,
+        httponly=True, secure=connection.url.scheme == "https" or bool(os.getenv("RENDER")),
+        samesite="lax", path="/",
+    )
+    return response
+
+
+@app.post("/logout")
+def logout():
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return response
 
 
 def _is_youtube_url(raw_url: str) -> bool:
@@ -192,6 +261,7 @@ def get_config() -> dict[str, Any]:
         "whisper_model": os.getenv("WHISPER_MODEL", "base"),
         "max_upload_bytes": MAX_UPLOAD_BYTES,
         "upload_chunk_bytes": UPLOAD_CHUNK_BYTES,
+        "login_required": bool(_app_password),
     }
 
 

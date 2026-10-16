@@ -28,6 +28,7 @@ const api = async (path, options = {}) => {
   if (!(options.body instanceof FormData)) headers['Content-Type'] ??= options.body instanceof Blob ? 'application/octet-stream' : 'application/json';
   const response = await fetch(path, {...options, headers});
   const body = await response.json().catch(() => ({}));
+  if (response.status === 401) window.location.assign('/login');
   if (!response.ok) {
     const error = new Error(typeof body.detail === 'string' ? body.detail : 'تعذر إكمال الطلب. تحقق من اتصالك وحاول مجددًا.');
     error.status = response.status;
@@ -278,6 +279,7 @@ document.querySelector('#new-job-button').addEventListener('click', () => {
 
 const refreshConfig = async () => {
   Object.assign(config, await api('/api/config'));
+  document.querySelector('#logout-form').classList.toggle('hidden', !config.login_required);
   const note = document.querySelector('#ai-note');
   note.querySelector('.status-dot').classList.toggle('ready', config.openrouter_configured);
   note.querySelector('span:nth-of-type(2)').textContent = config.openrouter_configured

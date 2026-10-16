@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#171813">
+  <title>الدخول — OpenShorts</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;background:#f4f1e9;color:#171813;font-family:system-ui,-apple-system,sans-serif;padding:24px}.card{width:100%;max-width:410px;background:#fbf9f3;border:1px solid #dcd8ce;padding:30px 24px}.brand{direction:ltr;font-size:27px;font-weight:750;letter-spacing:-1px;margin-bottom:28px}.brand span{color:#849e39}h1{font-size:25px;margin:0 0 10px}p{color:#77796b;line-height:1.8;font-size:14px;margin:0 0 22px}label{display:block;font-size:14px;font-weight:600;margin:18px 0 9px}input{width:100%;min-height:50px;padding:12px;border:1px solid #d1d0c3;background:#fff;font:16px system-ui;text-align:left;direction:ltr;border-radius:4px}input:focus{outline:2px solid #94ad48;outline-offset:2px}.password{display:flex;gap:8px}.password input{min-width:0;flex:1}.reveal{min-width:62px;padding:8px;border:1px solid #d1d0c3;background:#eeeede;font:14px system-ui;cursor:pointer}.submit{width:100%;min-height:50px;margin-top:24px;border:0;background:#c7fa57;color:#171813;font:700 16px system-ui;cursor:pointer}.submit:disabled{opacity:.65;cursor:wait}.error{margin-top:16px;padding:12px;background:#f9e5dd;color:#943c2d;font-size:14px;line-height:1.8}.hidden{display:none}.hint{font-size:12px;margin-top:16px;margin-bottom:0}.hint a{color:#607a26}button{border-radius:4px}small{font-size:12px;color:#797b70;line-height:1.7;display:block;margin-top:8px}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="brand">open<span>shorts</span></div>
+    <h1>ادخل إلى استوديو المقاطع</h1>
+    <p>استخدم بيانات الدخول التي زُوّدت بها لفتح موقعك.</p>
+    <form id="login-form">
+      <label for="username">اسم المستخدم</label>
+      <input id="username" name="username" value="openshorts" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+      <label for="password">كلمة المرور</label>
+      <div class="password"><input id="password" name="password" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" required><button id="reveal" class="reveal" type="button" aria-pressed="false" aria-label="إظهار كلمة المرور">إظهار</button></div>
+      <small>يمكنك لصق كلمة المرور ثم إظهارها للتأكد من الحروف.</small>
+      <button id="submit" class="submit" type="submit">دخول الموقع</button>
+      <div id="error" class="error hidden" role="alert"></div>
+      <p class="hint">يُحفظ تسجيل الدخول على هذا المتصفح لمدة أسبوع.</p>
+    </form>
+  </main>
+  <script>
+    const form=document.querySelector('#login-form');
+    const password=document.querySelector('#password');
+    document.querySelector('#reveal').addEventListener('click',event=>{
+      const visible=password.type==='password';
+      password.type=visible?'text':'password';
+      event.currentTarget.textContent=visible?'إخفاء':'إظهار';
+      event.currentTarget.setAttribute('aria-pressed',String(visible));
+      event.currentTarget.setAttribute('aria-label',visible?'إخفاء كلمة المرور':'إظهار كلمة المرور');
+    });
+    form.addEventListener('submit',async event=>{
+      event.preventDefault();
+      const submit=document.querySelector('#submit');
+      const error=document.querySelector('#error');
+      submit.disabled=true;submit.textContent='جارٍ الدخول…';error.classList.add('hidden');
+      try{
+        const response=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.querySelector('#username').value.trim(),password:password.value})});
+        const data=await response.json().catch(()=>({}));
+        if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'تعذر الدخول. أعد المحاولة.');
+        location.replace('/');
+      }catch(problem){
+        error.textContent=problem instanceof TypeError?'تعذر الاتصال بالموقع. تحقق من الشبكة وحاول مجددًا.':problem.message;
+        error.classList.remove('hidden');submit.disabled=false;submit.textContent='دخول الموقع';
+      }
+    });
+  </script>
+</body>
+</html>
