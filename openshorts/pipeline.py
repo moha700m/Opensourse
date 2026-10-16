@@ -5,6 +5,7 @@ import math
 import os
 import re
 import subprocess
+import wave
 from pathlib import Path
 from typing import Any, Callable
 
@@ -13,6 +14,7 @@ from openai import OpenAI
 from yt_dlp import YoutubeDL
 
 Progress = Callable[..., None]
+TRANSCRIPTION_CHUNK_SECONDS = 300
 
 
 def _run(command: list[str]) -> str:
@@ -123,15 +125,46 @@ def _transcribe(source: Path, model_name: str, work_dir: Path, progress: Progres
     model_location = str(bundled_model) if bundled_model and (bundled_model / "model.bin").is_file() else model_name
     model = WhisperModel(model_location, device="cpu", compute_type="int8", cpu_threads=2, num_workers=1,
                          download_root=cache_dir)
-    segments_iterator, info = model.transcribe(str(audio_path), beam_size=1, vad_filter=True, word_timestamps=False)
     segments: list[dict[str, Any]] = []
-    for segment in segments_iterator:
-        text = re.sub(r"\s+", " ", segment.text).strip()
-        if text:
-            segments.append({"start": float(segment.start), "end": float(segment.end), "text": text})
+    language = "unknown"
+    chunk_path = work_dir / "audio-chunk.wav"
+    # Decode at most five minutes at a time, so hours of audio cannot exhaust
+    # the memory of a small instance. Keep timestamps relative to the source.
+    try:
+        with wave.open(str(audio_path), "rb") as audio:
+            rate = audio.getframerate()
+            frames_per_chunk = rate * TRANSCRIPTION_CHUNK_SECONDS
+            total_frames = audio.getnframes()
+            chunk_count = max(1, math.ceil(total_frames / frames_per_chunk))
+            offset_frames = 0
+            chunk_index = 0
+            while True:
+                frames = audio.readframes(frames_per_chunk)
+                if not frames:
+                    break
+                chunk_frames = len(frames) // (audio.getsampwidth() * audio.getnchannels())
+                chunk_index += 1
+                with wave.open(str(chunk_path), "wb") as chunk:
+                    chunk.setparams(audio.getparams())
+                    chunk.writeframes(frames)
+                progress(progress=34 + int(12 * offset_frames / max(1, total_frames)),
+                         stage=f"تفريغ الكلام ({chunk_index}/{chunk_count})")
+                iterator, info = model.transcribe(str(chunk_path), beam_size=1, vad_filter=True, word_timestamps=False)
+                offset = offset_frames / rate
+                for segment in iterator:
+                    text = re.sub(r"\s+", " ", segment.text).strip()
+                    start = offset + max(0.0, float(segment.start))
+                    end = min((offset_frames + chunk_frames) / rate, offset + float(segment.end))
+                    if text and end > start:
+                        segments.append({"start": start, "end": end, "text": text})
+                        if language == "unknown":
+                            language = str(getattr(info, "language", "unknown"))
+                offset_frames += chunk_frames
+    finally:
+        chunk_path.unlink(missing_ok=True)
     if not segments:
         raise RuntimeError("لم أتمكن من استخراج كلام واضح من الفيديو.")
-    return segments, str(getattr(info, "language", "unknown"))
+    return segments, language
 
 
 def _format_transcript(segments: list[dict[str, Any]]) -> str:
