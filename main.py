@@ -5,13 +5,16 @@ import re
 import shutil
 import threading
 import uuid
+import base64
+import binascii
+import hmac
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -30,6 +33,32 @@ app.mount("/assets", StaticFiles(directory=WEB_DIR / "assets"), name="assets")
 _jobs: dict[str, dict[str, Any]] = {}
 _jobs_lock = threading.Lock()
 _runtime_api_key = ""
+_app_password = os.getenv("APP_PASSWORD", "")
+_app_username = os.getenv("APP_USERNAME", "openshorts")
+
+
+@app.middleware("http")
+async def require_deployment_password(request: Request, call_next):
+    if not _app_password or request.url.path == "/healthz":
+        return await call_next(request)
+
+    scheme, _, encoded = request.headers.get("authorization", "").partition(" ")
+    try:
+        credentials = base64.b64decode(encoded, validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError):
+        credentials = ""
+    username, separator, password = credentials.partition(":")
+    if (
+        scheme.lower() != "basic"
+        or not separator
+        or not hmac.compare_digest(username, _app_username)
+        or not hmac.compare_digest(password, _app_password)
+    ):
+        return Response(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="OpenShorts"'},
+        )
+    return await call_next(request)
 
 
 class CreateJobRequest(BaseModel):
@@ -84,6 +113,11 @@ def _run_job(job_id: str, request: CreateJobRequest) -> None:
 @app.get("/")
 def home() -> FileResponse:
     return FileResponse(WEB_DIR / "index.html")
+
+
+@app.get("/healthz")
+def health() -> dict[str, bool]:
+    return {"ok": True}
 
 
 @app.get("/api/config")
